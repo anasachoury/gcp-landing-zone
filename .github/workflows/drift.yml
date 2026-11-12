@@ -1,0 +1,84 @@
+name: drift-detection
+
+# Nightly plan of every stage. Out-of-band changes (someone clicked in the
+# console) show up here as exit code 2 and open an issue until reconciled.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # OIDC federation to GCP
+  contents: read
+  issues: write # open the drift issue
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    # Skip quietly on repositories that have not been bootstrapped yet.
+    if: vars.GCP_WIF_PROVIDER != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          token_format: access_token
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: plan all stages
+        id: plan
+        run: |
+          set -euo pipefail
+          drifted=""
+          for stage in 01-org 02-networking 03-security 10-factory; do
+            (
+              cd "stages/$stage"
+              terraform init -input=false \
+                -backend-config="bucket=${{ vars.GCP_STATE_BUCKET }}" \
+                -backend-config="prefix=landing-zone/$stage"
+            ) >/dev/null
+            set +e
+            (
+              cd "stages/$stage"
+              terraform plan -input=false -no-color -detailed-exitcode \
+                -var "org_id=${{ vars.GCP_ORG_ID }}" \
+                -var "billing_account=${{ vars.GCP_BILLING_ACCOUNT }}" \
+                -var "prefix=${{ vars.LZ_PREFIX }}" \
+                -var "state_bucket=${{ vars.GCP_STATE_BUCKET }}"
+            ) >"/tmp/$stage.plan.txt" 2>&1
+            code=$?
+            set -e
+            if [ "$code" -eq 2 ]; then
+              drifted="$drifted $stage"
+              echo "=== Drift detected in $stage ==="
+              cat "/tmp/$stage.plan.txt"
+            elif [ "$code" -ne 0 ]; then
+              echo "::error::plan for $stage errored:"
+              cat "/tmp/$stage.plan.txt"
+              exit 1
+            fi
+          done
+          echo "drifted=${drifted# }" >> "$GITHUB_OUTPUT"
+      - name: open or update the drift issue
+        if: steps.plan.outputs.drifted != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRIFTED: ${{ steps.plan.outputs.drifted }}
+        run: |
+          gh label create drift --color B60205 --description "Terraform drift detected" 2>/dev/null || true
+          issue="$(gh issue list --search 'in:title "Drift detected in landing zone"' --state open --json number --jq '.[0].number' || true)"
+          body="Nightly plan found changes outside Terraform on $(date -u +%F).
+
+          Stages affected: $DRIFTED
+
+          Plan output: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Either re-run the deploy workflow on main to reconcile, or fix the out-of-band change and close this issue."
+          if [ -z "$issue" ]; then
+            gh issue create --title "Drift detected in landing zone" --label drift --body "$body"
+          else
+            gh issue comment "$issue" --body "$body"
+          fi

@@ -1,0 +1,37 @@
+# Groups and the roles the landing zone grants them.
+#
+# Groups are the ONLY principals granted IAM — never individual users.
+# They must already exist in Cloud Identity / Google Workspace
+# (see docs/prerequisites.md — bootstrap.sh checks and tells you if not).
+#
+# EDIT: replace example.com with your identity domain.
+
+groups:
+  - id: lz-admins
+    email: lz-admins@example.com
+    display_name: Landing Zone Admins
+  - id: network-admins
+    email: network-admins@example.com
+    display_name: Network Administrators
+  - id: security-admins
+    email: security-admins@example.com
+    display_name: Security Administrators
+
+# Grants applied by stage 01-org.
+# parent: "organization" or "folder:<folder name from folders.yaml>"
+# roles:  list of predefined IAM roles.
+
+bindings:
+  - group: lz-admins
+    parent: organization
+    roles:
+      - roles/resourcemanager.organizationAdmin
+  - group: network-admins
+    parent: organization
+    roles:
+      - roles/compute.xpnAdmin
+      - roles/resourcemanager.folderViewer
+  - group: security-admins
+    parent: organization
+    roles:
+      - roles/iam.securityReviewer

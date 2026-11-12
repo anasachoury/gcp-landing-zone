@@ -1,0 +1,16 @@
+# Top-level folder taxonomy, created under the organization by stage 01-org.
+#
+# `name` is the key referenced by other catalogs (org-policy exceptions,
+# project placement). `display_name` is what shows in the console.
+
+folders:
+  - name: common
+    display_name: Common
+  - name: production
+    display_name: Production
+  - name: non-production
+    display_name: Non-Production
+  - name: development
+    display_name: Development
+  - name: sandbox
+    display_name: Sandbox

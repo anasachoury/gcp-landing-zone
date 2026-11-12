@@ -1,0 +1,68 @@
+# Project catalog — stage 10-factory creates one project per entry.
+# This is the "project factory": a PR that adds an entry here delivers a
+# fully-compliant project (right folder, APIs, shared VPC access, budget,
+# service accounts) on merge.
+#
+# Keys per entry:
+#   app / environment  → project id becomes <prefix>-<app>-<env abbreviation>
+#                        (development→dev, production→prod, non-production→nonprod)
+#   folder             → folder name from folders.yaml
+#   services           → APIs to enable beyond the logging/monitoring baseline
+#   shared_vpc.attach  → attach project to the shared VPC
+#   shared_vpc.subnet_users → group ids (or raw emails) granted
+#                        roles/compute.networkUser on ALL subnets of the VPC
+#   service_accounts   → per-project service accounts and their project roles
+#   iam                → optional extra group grants, e.g.
+#                        iam: [{ group: lz-admins, role: roles/viewer }]
+#   budget.amount      → monthly budget (USD); remove to skip the budget
+#   labels             → free-form labels (cost allocation, ownership)
+
+projects:
+  # --- pilot workload (EDIT or delete) ---
+  - app: pilot-api
+    environment: development
+    folder: development
+    description: Pilot workload — development
+    services:
+      - run.googleapis.com
+      - artifactregistry.googleapis.com
+      - secretmanager.googleapis.com
+    shared_vpc:
+      attach: true
+      subnet_users: [lz-admins]
+    service_accounts:
+      - id: runtime
+        display_name: Pilot API runtime
+        roles:
+          - roles/artifactregistry.reader
+          - roles/secretmanager.secretAccessor
+    budget:
+      amount: 50
+      thresholds: [0.5, 0.9, 1.0]
+    labels:
+      team: platform
+      app: pilot-api
+
+  - app: pilot-api
+    environment: production
+    folder: production
+    description: Pilot workload — production
+    services:
+      - run.googleapis.com
+      - artifactregistry.googleapis.com
+      - secretmanager.googleapis.com
+    shared_vpc:
+      attach: true
+      subnet_users: [lz-admins]
+    service_accounts:
+      - id: runtime
+        display_name: Pilot API runtime
+        roles:
+          - roles/artifactregistry.reader
+          - roles/secretmanager.secretAccessor
+    budget:
+      amount: 400
+      thresholds: [0.5, 0.9, 1.0]
+    labels:
+      team: platform
+      app: pilot-api

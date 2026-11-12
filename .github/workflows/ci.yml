@@ -1,0 +1,72 @@
+name: ci
+
+# Static checks only — no GCP credentials needed, so this always runs,
+# even for fork PRs and before bootstrap has been executed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: terraform fmt + validate
+    runs-on: ubuntu-latest
+    env:
+      TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: check formatting
+        run: terraform fmt -check -recursive
+      - name: validate all root modules
+        run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          fail=0
+          for dir in bootstrap/tf stages/01-org stages/02-networking stages/03-security stages/10-factory; do
+            echo "=== validate $dir ==="
+            ( cd "$dir" \
+              && terraform init -backend=false -input=false >/dev/null \
+              && terraform validate -no-color ) || fail=1
+          done
+          exit $fail
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.50.3
+      - run: tflint --init
+      - run: tflint --recursive
+
+  catalogs:
+    name: catalog validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 scripts/validate_catalogs.py
+
+  checkov:
+    name: checkov (soft-fail)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          # Soft-fail out of the box so findings do not block the first
+          # week. Review them, then flip to hard fail.
+          soft_fail: true

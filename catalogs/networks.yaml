@@ -1,0 +1,35 @@
+# Network layout, created by stage 02-networking in the shared VPC host
+# project (<prefix>-net-host).
+#
+# Subnet CIDRs and secondary ranges must not overlap —
+# scripts/validate_catalogs.py enforces this.
+
+vpc:
+  name: lz-network
+  description: Shared VPC — host network for all landing zone workloads
+  routing_mode: REGIONAL
+
+# Regions with subnets in this VPC (Cloud NAT is created per region).
+regions: [europe-west1]
+
+# Trusted source ranges for the hierarchical firewall policy
+# (e.g. on-premises ranges when hybrid connectivity is added later).
+internal_source_ranges: [10.0.0.0/8]
+
+subnets:
+  - region: europe-west1
+    name: ew1-main
+    ip_cidr_range: 10.10.0.0/20
+    secondary_ranges:
+      - range_name: gke-pods
+        ip_cidr_range: 10.16.0.0/14
+      - range_name: gke-services
+        ip_cidr_range: 10.20.0.0/20
+
+nat:
+  enabled: true
+
+dns:
+  private_zone:
+    name: internal
+    dns_name: "internal."
