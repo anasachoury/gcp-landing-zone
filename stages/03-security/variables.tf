@@ -7,6 +7,9 @@ variable "org_id" {
   type        = string
 }
 
+# Declared but unused on purpose: every stage exposes the same core
+# interface so CI and the Makefile pass one uniform set of variables.
+# tflint-ignore: terraform_unused_declarations
 variable "billing_account" {
   description = "Billing account id (unused by this stage; part of the uniform stage interface)."
   type        = string

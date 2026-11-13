@@ -2,6 +2,9 @@
 # pass one uniform set of variables regardless of stage. org_id is declared
 # for uniformity; folder placement comes from the 01-org stage outputs.
 
+# Declared but unused on purpose: every stage exposes the same core
+# interface so CI and the Makefile pass one uniform set of variables.
+# tflint-ignore: terraform_unused_declarations
 variable "org_id" {
   description = "Google Cloud organization id (unused by this stage; part of the uniform stage interface)."
   type        = string
