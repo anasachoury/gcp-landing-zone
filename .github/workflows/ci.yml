@@ -29,7 +29,7 @@ jobs:
         run: |
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
           fail=0
-          for dir in bootstrap/tf stages/01-org stages/02-networking stages/03-security stages/10-factory; do
+          for dir in bootstrap/tf bootstrap/tf-gate stages/01-org stages/02-networking stages/03-security stages/10-factory; do
             echo "=== validate $dir ==="
             ( cd "$dir" \
               && terraform init -backend=false -input=false >/dev/null \

@@ -13,7 +13,7 @@ concurrency:
 
 permissions:
   id-token: write # OIDC federation to GCP
-  contents: read
+  contents: read # also covers reading environment protection rules (gate job)
 
 env:
   TF_VERSION: "1.9.8"
@@ -71,13 +71,15 @@ jobs:
 
   apply:
     name: apply (stages in order)
+    needs: gate
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       vars.GCP_WIF_PROVIDER != ''
-    # Add required reviewers to the "landing-zone" environment
-    # (Settings → Environments) to require a manual approval before
-    # every apply. Until then this runs without a gate.
+    # The "landing-zone" environment must have required reviewers configured
+    # (bootstrap/tf-gate, or Settings → Environments). The gate job below
+    # fails the run if it does not, and GitHub itself blocks the apply until
+    # a reviewer approves.
     environment: landing-zone
     runs-on: ubuntu-latest
     steps:
@@ -109,3 +111,38 @@ jobs:
             echo "### $stage: applied" >> "$GITHUB_STEP_SUMMARY"
           done
           echo "All stages applied." >> "$GITHUB_STEP_SUMMARY"
+
+  # Fail-closed gate: the apply above must not run unless the landing-zone
+  # environment has required reviewers. This catches the case where bootstrap
+  # was run without the reviewer step, or someone removed the reviewers
+  # afterwards — GitHub's environment protection only exists if it is
+  # configured, and an unconfigured environment silently passes everything
+  # through.
+  gate:
+    name: gate / environment reviewers configured
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      vars.GCP_WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: require required reviewers on the landing-zone environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API: ${{ github.api_url }}/repos/${{ github.repository }}/environments/landing-zone
+        run: |
+          set -euo pipefail
+          echo "Checking protection rules for environment 'landing-zone'..."
+          # 404: environment does not exist at all → not gated.
+          if ! response="$(curl -sfSH "Authorization: Bearer $GH_TOKEN" "$API")"; then
+            echo "::error::Environment 'landing-zone' does not exist. Run bootstrap/tf-gate (bootstrap.sh --github-token ... --reviewer-users ...) or create it with required reviewers in Settings → Environments."
+            exit 1
+          fi
+          # Missing protection_rules, or none of type required_reviewers → not gated.
+          if ! jq -e '[.protection_rules[]? | select(.type == "required_reviewers")] | length > 0' >/dev/null <<<"$response"; then
+            echo "::error::Environment 'landing-zone' exists but has NO required reviewers: every push to main would apply without a human approval. Run bootstrap/tf-gate to add reviewers, or Settings → Environments → landing-zone → Required reviewers."
+            exit 1
+          fi
+          echo "Protection rules:"
+          echo "$response" | jq -r '.protection_rules[] | "  - \(.type)"'
+          echo "::notice::landing-zone environment is reviewer-gated. Approve the apply job to proceed."

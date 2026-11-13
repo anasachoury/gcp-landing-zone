@@ -49,6 +49,7 @@ apply: init
 
 bootstrap-validate:
 	cd bootstrap/tf && terraform init -backend=false && terraform validate
+	cd bootstrap/tf-gate && terraform init -backend=false && terraform validate
 
 catalog-validate:
 	python3 scripts/validate_catalogs.py

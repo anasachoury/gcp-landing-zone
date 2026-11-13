@@ -45,7 +45,8 @@ are listed in [docs/prerequisites.md](docs/prerequisites.md).
 ./bootstrap/bootstrap.sh \
   --github-owner your-org --github-repo gcp-landing-zone \
   --org-id 123456789012 --billing-account 01ABCD-123456-7890EF \
-  --prefix lz
+  --prefix lz \
+  --github-token "$GH_PAT" --reviewer-users alice,bob
 
 # 2. set the five repository variables it prints (gh commands are printed
 #    for you — none of them are secrets)
@@ -59,6 +60,18 @@ are listed in [docs/prerequisites.md](docs/prerequisites.md).
 # 4. push to main. The deploy workflow applies:
 #    01-org → 02-networking → 03-security → 10-factory
 ```
+
+The `--github-token` / `--reviewer-users` step configures the
+`landing-zone` GitHub environment with required reviewers
+([bootstrap/tf-gate](bootstrap/tf-gate)): every apply then waits for a
+human approval, and the person who pushed cannot approve it themselves
+(the two-human rule). The token needs repo admin (or fine-grained:
+Environments read/write) and is used only for that one configuration
+step — never stored anywhere. Skip it and the deploy workflow's gate job
+fails every apply with instructions on how to fix it; the gate cannot
+be forgotten silently. Solo operator? Use
+`--reviewer-users you --allow-self-review` and the apply is still
+click-gated, just by yourself.
 
 First run takes ~10 minutes; afterwards plans and applies are incremental.
 Note: CI intentionally fails on the pristine fork with
@@ -112,8 +125,10 @@ Day-to-day changes are YAML diffs, reviewed like code:
 - **IAM binds to groups, never users.** Humans are added to groups, not to
   resources.
 - **Every apply is gated** — PR plans first; the apply runs through the
-  `landing-zone` GitHub environment (add required reviewers for a
-  two-human rule).
+  `landing-zone` GitHub environment, which [bootstrap/tf-gate](bootstrap/tf-gate)
+  configures with required reviewers and `prevent_self_review`: the person
+  who pushed cannot approve their own apply (two-human rule). A gate job in
+  the deploy workflow fails the run if the reviewers are ever missing.
 - **Break-glass is alerted, not blocked**: org IAM changes, org policy
   changes, and SA key creation email the security group within a minute.
 - **Nightly drift detection** opens an issue when reality and Terraform
@@ -126,6 +141,7 @@ Details: [docs/architecture.md](docs/architecture.md) ·
 
 ```
 bootstrap/          run once, from an org admin's laptop
+  tf-gate/          the reviewer gate on the landing-zone GitHub environment
 stages/
   01-org/           folders, IAM, policies, logging, budget
   02-networking/    shared VPC, NAT, DNS, hierarchical firewall
@@ -134,7 +150,7 @@ stages/
 catalogs/           the five YAML files a platform team edits
 scripts/            catalog validation (runs in CI)
 docs/               architecture, prerequisites, pipeline, day-2, ADRs
-.github/workflows/  ci (static) · deploy (plan + apply) · drift (nightly)
+.github/workflows/  ci (static) · deploy (plan + gate + apply) · drift (nightly)
 ```
 
 ## Roadmap
