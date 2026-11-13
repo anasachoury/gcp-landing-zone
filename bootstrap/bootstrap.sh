@@ -211,15 +211,34 @@ terraform apply -input=false "${APPROVE_ARGS[@]}" \
 # this step is what makes applies possible at all (and makes the documented
 # two-human rule real).
 if [[ -n "$GH_TOKEN_GATE" ]]; then
+  # A gate token with no reviewers would make tf-gate fail its
+  # precondition after the (slow) GCP half of bootstrap — reject it here,
+  # before anything runs.
+  if [[ -z "$REVIEWER_USERS" && -z "$REVIEWER_TEAMS" ]]; then
+    echo "ERROR: --github-token given but no reviewers: pass --reviewer-users alice,bob" >&2
+    echo "       (or --reviewer-teams team-slug; solo: --reviewer-users <you> --allow-self-review)" >&2
+    exit 1
+  fi
   say "Configuring the landing-zone environment gate (reviewers)"
   # tf-gate is a sibling of tf/ — resolve it from TF_DIR, not $0, because we
   # already cd'd and $0 may be relative to the original working directory.
   GATE_DIR="$(cd "$TF_DIR/../tf-gate" && pwd)"
 
+  # --reviewer-users alice,bob becomes a proper HCL list ["alice","bob"]:
+  # quote each login, then join with commas.
+  hcl_list() {
+    local items="$1" quoted=""
+    IFS=',' read -ra parts <<<"$items"
+    for p in "${parts[@]}"; do
+      [[ -n "$p" ]] || continue
+      quoted+="${quoted:+,}\"$p\""
+    done
+    printf '[%s]' "$quoted"
+  }
   REVIEWER_USERS_ARG=()
-  [[ -n "$REVIEWER_USERS" ]] && REVIEWER_USERS_ARG=(-var "reviewer_users=[${REVIEWER_USERS//,/\",\"}]")
+  [[ -n "$REVIEWER_USERS" ]] && REVIEWER_USERS_ARG=(-var "reviewer_users=$(hcl_list "$REVIEWER_USERS")")
   REVIEWER_TEAMS_ARG=()
-  [[ -n "$REVIEWER_TEAMS" ]] && REVIEWER_TEAMS_ARG=(-var "reviewer_teams=[${REVIEWER_TEAMS//,/\",\"}]")
+  [[ -n "$REVIEWER_TEAMS" ]] && REVIEWER_TEAMS_ARG=(-var "reviewer_teams=$(hcl_list "$REVIEWER_TEAMS")")
   SELF_REVIEW_ARG=(-var "prevent_self_review=true")
   [[ $ALLOW_SELF_REVIEW -eq 1 ]] && SELF_REVIEW_ARG=(-var "prevent_self_review=false")
 
