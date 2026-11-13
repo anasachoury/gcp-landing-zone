@@ -72,30 +72,3 @@ jobs:
           # Soft-fail out of the box so findings do not block the first
           # week. Review them, then flip to hard fail.
           soft_fail: true
-
-  # TEMPORARY e2e probe for this PR: proves the deploy gate job's
-  # assumption that the ephemeral GITHUB_TOKEN (contents: read) can read
-  # environment protection rules. Removed before merge.
-  gate-probe:
-    name: gate-probe (temporary, removed before merge)
-    runs-on: ubuntu-latest
-    steps:
-      - name: read environment protection rules with github.token
-        env:
-          GH_TOKEN: ${{ github.token }}
-          API: ${{ github.api_url }}/repos/${{ github.repository }}/environments/landing-zone
-        run: |
-          set -euo pipefail
-          echo "repository: $GITHUB_REPOSITORY"
-          echo "--- raw protection_rules ---"
-          if ! response="$(curl -sfSH "Authorization: Bearer $GH_TOKEN" "$API")"; then
-            echo "FETCH FAILED (exit $?) — gate job would report environment missing"
-            exit 0
-          fi
-          echo "$response" | jq '.protection_rules'
-          echo "--- gate-job jq verdict ---"
-          if jq -e '[.protection_rules[]? | select(.type == "required_reviewers")] | length > 0' >/dev/null <<<"$response"; then
-            echo "GATE PASSES (apply would be allowed)"
-          else
-            echo "GATE FAILS (apply would be blocked)"
-          fi
