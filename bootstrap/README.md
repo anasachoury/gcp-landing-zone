@@ -22,9 +22,37 @@ Prerequisites are in [docs/prerequisites.md](../docs/prerequisites.md).
 | `<prefix>-tfstate` bucket | Terraform state: versioned, uniform access, public access prevented |
 | `<prefix>-pipeline` service account | **No keys, ever.** Used only via GitHub OIDC |
 | Workload Identity pool + provider | Trusts `https://token.actions.githubusercontent.com`, restricted to `owner/repo` by attribute condition |
+| `landing-zone` GitHub environment | Required reviewers + `prevent_self_review` — the apply gate ([tf-gate](tf-gate)) |
 
 The script is idempotent: it reuses anything that already exists, and
 `terraform apply` converges. Re-run it freely after fixing a problem.
+
+## The apply gate (tf-gate)
+
+`bootstrap.sh --github-token` runs the small [tf-gate](tf-gate) module,
+which configures the `landing-zone` GitHub environment:
+
+- **required reviewers** — `--reviewer-users alice,bob` (or
+  `--reviewer-teams platform-team` for an org repo; the team manages its
+  own membership, not Terraform),
+- **`prevent_self_review = true`** — whoever pushed to main cannot approve
+  the apply: the two-human rule,
+- **`can_admins_bypass = false`** — repo admins wait for review too.
+
+The token is a one-off: a classic PAT with `repo` scope or a fine-grained
+token with Environments read/write on this repository. It is passed as
+`TF_VAR_github_token` (never a `-var` argument), used during the apply,
+and not stored. Rotate or delete it afterwards if you like.
+
+If you skip `--github-token`, bootstrap still completes — but the deploy
+workflow's gate job then fails every apply with fix-it instructions, so
+the ungated state cannot pass silently. Solo operator: pass
+`--reviewer-users <you> --allow-self-review`; applies stay click-gated,
+by you.
+
+The tf-gate state lives in the same state bucket under
+`landing-zone/github-gate`, so re-running bootstrap converges reviewer
+changes too (removed from the variables = removed on GitHub).
 
 ## Roles the pipeline service account gets
 

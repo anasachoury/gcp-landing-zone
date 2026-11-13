@@ -42,8 +42,18 @@ Before running bootstrap, you need:
 - Permission to set repository **variables** (repo admin) — bootstrap
   prints the exact five to set, with `gh variable set` commands ready to
   paste.
-- Optional but recommended: create the `landing-zone` environment with
-  required reviewers, so every apply needs a human click.
+- A one-off **GitHub token** to configure the apply gate: a classic PAT
+  with `repo` scope, or a fine-grained token with Environments read/write
+  on this repository. Bootstrap uses it once to create the reviewer-gated
+  `landing-zone` environment (see [bootstrap/tf-gate](../bootstrap/tf-gate))
+  and never stores it. Without the gate, the deploy workflow refuses to
+  apply.
+- The **reviewers**: one or more GitHub users (or a team) who will approve
+  every apply. They need at least read access to the repository. Pick at
+  least two people if you want the two-human rule as documented —
+  `prevent_self_review` (on by default) means whoever pushed cannot
+  approve their own apply, so a solo reviewer needs the
+  `--allow-self-review` trade-off described in the bootstrap README.
 
 ## Costs to expect
 

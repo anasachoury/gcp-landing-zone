@@ -91,9 +91,13 @@ Terraform runs, so a broken YAML never reaches a plan.
 - **Break-glass is monitored, not prevented.** Organization IAM changes,
   org policy changes, and SA key creation trigger an alert to the
   security-admins group within a minute (stage 03-security).
-- **Every apply is reviewable.** PRs produce per-stage plans; merge applies
-  through the `landing-zone` environment, which you can protect with
-  required reviewers. A nightly drift job catches out-of-band changes.
+- **Every apply is gated by a human.** PRs produce per-stage plans; the
+  merge applies through the `landing-zone` environment, which
+  [bootstrap/tf-gate](../bootstrap/tf-gate) configures with required
+  reviewers and `prevent_self_review` — whoever pushed cannot approve
+  their own apply (the two-human rule). A fail-closed gate job in the
+  deploy workflow blocks applies if the reviewers are ever missing, and a
+  nightly drift job catches out-of-band changes.
 
 ## What is intentionally out of scope
 

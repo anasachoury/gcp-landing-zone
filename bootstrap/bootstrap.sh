@@ -8,6 +8,7 @@
 #   2. the Terraform state bucket (versioned, no public access)
 #   3. the pipeline service account with curated org-level roles
 #   4. a Workload Identity pool + GitHub OIDC provider for this repository
+#   5. the reviewer-gated "landing-zone" GitHub environment (--github-token)
 #
 # Then prints the GitHub repository variables the pipelines need.
 #
@@ -17,9 +18,18 @@
 #     [--org-id 123456789012] [--billing-account 01ABCD-...] \
 #     [--prefix lz] [--state-bucket my-bucket] [--auto-approve]
 #
+# To also configure the apply gate (recommended, required for the documented
+# two-human rule):
+#   --github-token <PAT>            token with repo admin (or fine-grained:
+#                                   Environments read/write on this repo)
+#   --reviewer-users alice,bob      GitHub logins who approve applies
+#   --reviewer-teams platform-team  GitHub team slugs (org repos)
+#   --allow-self-review             solo operator: you pushed, you approve
+#
 # Everything can also be provided via environment variables:
 #   LZ_GITHUB_OWNER, LZ_GITHUB_REPO, LZ_ORG_ID, LZ_BILLING_ACCOUNT,
-#   LZ_PREFIX, LZ_STATE_BUCKET, LZ_BOOTSTRAP_PROJECT_ID, LZ_STATE_BUCKET_LOCATION
+#   LZ_PREFIX, LZ_STATE_BUCKET, LZ_BOOTSTRAP_PROJECT_ID, LZ_STATE_BUCKET_LOCATION,
+#   LZ_GITHUB_TOKEN, LZ_REVIEWER_USERS, LZ_REVIEWER_TEAMS, LZ_ALLOW_SELF_REVIEW
 
 set -euo pipefail
 
@@ -31,10 +41,14 @@ GH_REPO="${LZ_GITHUB_REPO:-}"
 BOOTSTRAP_PROJECT="${LZ_BOOTSTRAP_PROJECT_ID:-}"
 BUCKET="${LZ_STATE_BUCKET:-}"
 LOCATION="${LZ_STATE_BUCKET_LOCATION:-EU}"
+GH_TOKEN_GATE="${LZ_GITHUB_TOKEN:-}"
+REVIEWER_USERS="${LZ_REVIEWER_USERS:-}"
+REVIEWER_TEAMS="${LZ_REVIEWER_TEAMS:-}"
+ALLOW_SELF_REVIEW="${LZ_ALLOW_SELF_REVIEW:-0}"
 AUTO_APPROVE=0
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -44,6 +58,10 @@ while [[ $# -gt 0 ]]; do
     --billing-account) BILLING="$2"; shift 2 ;;
     --github-owner) GH_OWNER="$2"; shift 2 ;;
     --github-repo) GH_REPO="$2"; shift 2 ;;
+    --github-token) GH_TOKEN_GATE="$2"; shift 2 ;;
+    --reviewer-users) REVIEWER_USERS="$2"; shift 2 ;;
+    --reviewer-teams) REVIEWER_TEAMS="$2"; shift 2 ;;
+    --allow-self-review) ALLOW_SELF_REVIEW=1; shift ;;
     --prefix) PREFIX="$2"; shift 2 ;;
     --bootstrap-project-id) BOOTSTRAP_PROJECT="$2"; shift 2 ;;
     --state-bucket) BUCKET="$2"; shift 2 ;;
@@ -186,9 +204,60 @@ terraform apply -input=false "${APPROVE_ARGS[@]}" \
   -var "github_owner=$GH_OWNER" \
   -var "github_repo=$GH_REPO"
 
+# --- 4b. terraform: reviewer gate on the GitHub environment ---------------
+# The apply job deploys through the "landing-zone" GitHub environment. An
+# environment with no required reviewers lets every push to main apply
+# unattended — the deploy workflow's gate job fails closed in that case, so
+# this step is what makes applies possible at all (and makes the documented
+# two-human rule real).
+if [[ -n "$GH_TOKEN_GATE" ]]; then
+  say "Configuring the landing-zone environment gate (reviewers)"
+  # tf-gate is a sibling of tf/ — resolve it from TF_DIR, not $0, because we
+  # already cd'd and $0 may be relative to the original working directory.
+  GATE_DIR="$(cd "$TF_DIR/../tf-gate" && pwd)"
+
+  REVIEWER_USERS_ARG=()
+  [[ -n "$REVIEWER_USERS" ]] && REVIEWER_USERS_ARG=(-var "reviewer_users=[${REVIEWER_USERS//,/\",\"}]")
+  REVIEWER_TEAMS_ARG=()
+  [[ -n "$REVIEWER_TEAMS" ]] && REVIEWER_TEAMS_ARG=(-var "reviewer_teams=[${REVIEWER_TEAMS//,/\",\"}]")
+  SELF_REVIEW_ARG=(-var "prevent_self_review=true")
+  [[ $ALLOW_SELF_REVIEW -eq 1 ]] && SELF_REVIEW_ARG=(-var "prevent_self_review=false")
+
+  # The token is passed as an environment variable, not -var, so it does not
+  # land in the plan file, the shell history, or a tfvars file. Similarly,
+  # GATE_DIR runs in a subshell so the bootstrap dir stays current for the
+  # terraform output calls in section 5.
+  (
+    cd "$GATE_DIR"
+    export TF_VAR_github_token="$GH_TOKEN_GATE"
+    terraform init -input=false \
+      -backend-config="bucket=$BUCKET" \
+      -backend-config="prefix=landing-zone/github-gate"
+    terraform apply -input=false "${APPROVE_ARGS[@]}" \
+      -var "github_owner=$GH_OWNER" \
+      -var "github_repo=$GH_REPO" \
+      "${REVIEWER_USERS_ARG[@]}" \
+      "${REVIEWER_TEAMS_ARG[@]}" \
+      "${SELF_REVIEW_ARG[@]}"
+  )
+else
+  echo >&2
+  echo "WARNING: --github-token not given — the landing-zone environment was" >&2
+  echo "NOT configured with required reviewers. The deploy workflow's gate job" >&2
+  echo "will fail every apply until you do one of:" >&2
+  echo "  - re-run bootstrap with --github-token and --reviewer-users (or teams)" >&2
+  echo "  - Settings → Environments → landing-zone → add Required reviewers" >&2
+fi
+
 # --- 5. instructions ---------------------------------------------------------
 WIF_PROVIDER="$(terraform output -raw wif_provider)"
 STATE_BUCKET_OUT="$(terraform output -raw state_bucket)"
+
+if [[ -n "$GH_TOKEN_GATE" && $ALLOW_SELF_REVIEW -eq 1 ]]; then
+  ALLOW_SELF_REVIEW_MSG=" (you will approve your own pushes — --allow-self-review was used)"
+else
+  ALLOW_SELF_REVIEW_MSG=""
+fi
 
 cat <<EOF
 
@@ -213,9 +282,12 @@ cat <<EOF
    gh variable set LZ_PREFIX           --body "$PREFIX"
 
  Then:
-   1. (Recommended) Settings → Environments → create "landing-zone"
-      and add required reviewers — every apply will then need approval.
+   1. Push to main. The deploy workflow applies stages 01→02→03→10 —
+      the apply waits for an approval by the landing-zone environment
+      reviewers${ALLOW_SELF_REVIEW_MSG}.
    2. Edit catalogs/groups.yaml (your domain) and catalogs/*.yaml to taste.
-   3. Push to main. The deploy workflow applies stages 01→02→03→10.
+   3. (Recommended) Enable branch protection on main: require the ci and
+      deploy checks and a PR review — the environment gate alone cannot
+      stop a direct push that edits the workflows themselves.
 =====================================================================
 EOF
