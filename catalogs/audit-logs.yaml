@@ -1,0 +1,85 @@
+# Audit logging: Data Access configuration, log buckets, and exports.
+# Applied by stage 01-org to the central logging project.
+#
+# Admin Activity, System Event and Policy logs are always recorded and cannot
+# be turned off. Data Access logs are opt-in per service and are the ones that
+# cost money — enable DATA_READ only where reading the data is itself the
+# security event worth recording.
+
+audit_config:
+  # Applied to every service in the organization. ADMIN_READ is on by default
+  # and cannot be disabled; DATA_WRITE is the one worth opting into.
+  all_services:
+    log_types: [DATA_WRITE]
+
+  # Per-service overrides. These replace (not add to) the allServices entry
+  # for that service.
+  services:
+    - service: storage.googleapis.com
+      log_types: [DATA_READ, DATA_WRITE]
+    - service: bigquery.googleapis.com
+      log_types: [DATA_READ, DATA_WRITE]
+    - service: secretmanager.googleapis.com
+      log_types: [DATA_READ, DATA_WRITE]
+    - service: cloudkms.googleapis.com
+      log_types: [DATA_READ, DATA_WRITE]
+    - service: iam.googleapis.com
+      log_types: [DATA_READ, DATA_WRITE]
+    - service: sqladmin.googleapis.com
+      log_types: [DATA_READ, DATA_WRITE]
+
+# One bucket and one organization-wide sink per entry. The filter decides what
+# lands in the bucket; retention is per bucket because the value of a DNS query
+# log and the value of an admin activity log are not measured in the same
+# number of days.
+buckets:
+  - id: audit-logs
+    description: Admin activity, system events and policy denials from every project
+    retention_days: 365
+    filter: >-
+      logName:"cloudaudit.googleapis.com%2Factivity"
+      OR logName:"cloudaudit.googleapis.com%2Fsystem_event"
+      OR logName:"cloudaudit.googleapis.com%2Fpolicy"
+
+  - id: data-access
+    description: Data Access logs — who read or wrote which object
+    retention_days: 90
+    filter: logName:"cloudaudit.googleapis.com%2Fdata_access"
+
+  - id: network
+    description: VPC flow, firewall and NAT logs
+    retention_days: 90
+    filter: >-
+      logName:"compute.googleapis.com%2Fvpc_flows"
+      OR logName:"compute.googleapis.com%2Ffirewall"
+      OR logName:"compute.googleapis.com%2Fnat_flows"
+
+  - id: dns
+    description: DNS query logs from the private zones
+    retention_days: 30
+    filter: logName:"dns.googleapis.com%2Fdns_queries"
+
+# Exports. Both are optional; set enabled: false to skip the sink, the
+# destination and the IAM grant it needs.
+exports:
+  # Long-term, queryable copy of the audit trail. The filter excludes
+  # BigQuery Data Access logs written by the sink itself, which would
+  # otherwise feed back into the dataset it is writing.
+  bigquery:
+    enabled: true
+    dataset: audit_export
+    location: EU
+    retention_days: 400
+    description: Organization audit logs (admin activity, data access, policy)
+    filter: >-
+      logName:"cloudaudit.googleapis.com"
+      AND NOT (logName:"cloudaudit.googleapis.com%2Fdata_access"
+      AND protoPayload.serviceName="bigquery.googleapis.com")
+
+  # Streaming feed for a SIEM or any other subscriber. No subscription is
+  # created: add one where the consumer lives.
+  pubsub:
+    enabled: true
+    topic: audit-feed
+    description: Organization audit logs, streaming
+    filter: logName:"cloudaudit.googleapis.com"
