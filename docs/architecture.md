@@ -51,46 +51,68 @@ applied in dependency order. Later stages read earlier stages' outputs via
 ```mermaid
 flowchart TD
     BOOT["bootstrap (run once, local)<br/>state bucket, pipeline SA, WIF pool"]
-    ORG["01-org<br/>folders, group IAM, org policies,<br/>logging project, sinks, budget"]
+    ORG["01-org<br/>folders, group IAM, org policies,<br/>logging project, Data Access logs,<br/>buckets + exports, tags"]
     NET["02-networking<br/>host project, VPC, subnets, NAT,<br/>DNS, hierarchical firewall"]
-    SEC["03-security<br/>KMS, break-glass alerts,<br/>custom constraint, optional VPC-SC"]
+    SEC["03-security<br/>KMS, SCC findings feed + export,<br/>break-glass alerts, VPC-SC"]
     FACT["10-factory<br/>projects from catalogs/projects.yaml"]
     BOOT --> ORG --> NET --> SEC --> FACT
     NET -.->|"host project, subnets"| FACT
-    ORG -.->|"folders, logging project"| SEC
-    ORG -.->|"folders"| FACT
+    ORG -.->|"folders, logging project,<br/>tag values"| SEC
+    ORG -.->|"folders, tag values"| FACT
 ```
 
 ## Catalogs: the source of truth
 
-Everything a platform team changes day to day lives in five YAML files, not
+Everything a platform team changes day to day lives in seven YAML files, not
 in Terraform:
 
 | Catalog | Drives | Stage |
 | --- | --- | --- |
 | `folders.yaml` | folder taxonomy | 01-org |
-| `groups.yaml` | group inventory + IAM bindings | 01-org, 02, 10 |
-| `org-policies.yaml` | org policy library + folder exceptions | 01-org |
+| `groups.yaml` | group inventory, IAM bindings, break-glass accounts | 01-org, 02, 10 |
+| `org-policies.yaml` | org policy library, folder scoping, folder exceptions | 01-org |
+| `audit-logs.yaml` | Data Access log configuration, log buckets, retention, exports | 01-org |
+| `tags.yaml` | resource tag keys and values | 01-org, 02, 10 |
 | `networks.yaml` | VPC, subnets, secondary ranges, NAT, DNS | 02-networking |
 | `projects.yaml` | project factory: every workload project | 10-factory |
 
 `scripts/validate_catalogs.py` checks the catalogs (uniqueness,
-cross-references, CIDR overlaps, GCP name-length limits) in CI before any
-Terraform runs, so a broken YAML never reaches a plan.
+cross-references, CIDR overlaps, GCP name-length limits, and the
+constraint-specific value rules the org policy API enforces) in CI before any
+Terraform runs, so a broken YAML never reaches a plan. Two of those checks are
+cross-file on purpose: the domains allowed for domain-restricted sharing must
+cover every group in `groups.yaml`, and every environment in `projects.yaml`
+must have a matching value in `tags.yaml`.
 
 ## Security model
 
 - **No service account keys exist.** The org policy library disables SA key
-  creation org-wide from the first apply. The pipeline authenticates via
-  GitHub-issued OIDC tokens, which expire within an hour.
+  creation *and* key upload org-wide from the first apply, and caps the
+  lifetime of any key that appears where those are lifted. The pipeline
+  authenticates via GitHub-issued OIDC tokens, which expire within an hour.
 - **Federation is repository-scoped.** The WIF provider's attribute
   condition only accepts tokens for this repository; anything else is
   rejected before it can become credentials.
+- **Sharing stops at the organization boundary.** Domain-restricted sharing
+  is the control that stops a resource from being handed to an outside
+  identity; with it enforced, `user:`, `group:` and `domain:` members outside
+  your allowed domains — and `allUsers` / `allAuthenticatedUsers` — are
+  rejected at `SetIamPolicy` time. Service accounts and workload identity
+  principal sets are not covered by the constraint; that is a Google
+  limitation, and the reason the perimeter and the network controls exist.
 - **Humans get groups, not roles.** IAM grants bind to the groups in
   `groups.yaml` — never to individual users.
-- **Break-glass is monitored, not prevented.** Organization IAM changes,
-  org policy changes, and SA key creation trigger an alert to the
-  security-admins group within a minute (stage 03-security).
+- **The audit trail has three copies.** Data Access logs are configured per
+  service, land in four buckets with per-class retention (admin 365 d, data
+  access 90 d, network 90 d, DNS 30 d), and are exported to BigQuery for
+  long-term query and to Pub/Sub for a SIEM.
+- **Findings are exported, not just visible.** SCC notifications stream
+  HIGH/CRITICAL findings to Pub/Sub; a continuous export writes every active
+  finding to BigQuery.
+- **Break-glass is real and alarmed.** Two emergency accounts hold no
+  standing role. The `break-glass` group carries the repair roles and is kept
+  empty; any activity by either account pages the security group. Procedure:
+  [break-glass.md](break-glass.md).
 - **Every apply is reviewable.** PRs produce per-stage plans; merge applies
   through the `landing-zone` environment, which you can protect with
   required reviewers. A nightly drift job catches out-of-band changes.
@@ -105,3 +127,6 @@ Terraform runs, so a broken YAML never reaches a plan.
   fork of `org-policies.yaml`, but not shipped here.
 - **Multi-region.** One region (`europe-west1`) in the example catalog —
   add more subnets and NAT routers as needed.
+- **Human identity lifecycle.** Users, group membership and super-admin
+  assignment live in Cloud Identity, not in Terraform. The landing zone
+  creates the groups' role bindings, not the people.

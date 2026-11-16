@@ -1,13 +1,14 @@
 # gcp-landing-zone
 
 A lean, **GitHub-native** landing zone for Google Cloud: folders, group IAM,
-an org policy library, a shared VPC, central logging, security alerting, and
-a project factory — deployed entirely from GitHub Actions with
-**zero stored credentials**.
+a 21-constraint org policy library, a shared VPC, central logging with Data
+Access logs and BigQuery/Pub-Sub exports, Security Command Center findings
+export, resource tags, break-glass access, and a project factory — deployed
+entirely from GitHub Actions with **zero stored credentials**.
 
 ```
 Organization
-├── Common          → lz-logging (audit logs, metrics, alerts, KMS)
+├── Common          → lz-logging (audit logs, exports, SCC findings, KMS)
 │                   → lz-net-host (shared VPC, NAT, DNS, hierarchical firewall)
 ├── Production      → factory projects (catalogs/projects.yaml)
 ├── Non-Production
@@ -51,8 +52,9 @@ are listed in [docs/prerequisites.md](docs/prerequisites.md).
 #    for you — none of them are secrets)
 
 # 3. edit the catalogs to your reality:
-#    catalogs/groups.yaml  (your domain, your groups)
-#    catalogs/org-policies.yaml  (your allowed regions)
+#    catalogs/groups.yaml  (your domain, your groups, your break-glass accounts)
+#    catalogs/org-policies.yaml  (your domain again, your allowed regions)
+#    catalogs/audit-logs.yaml  (Data Access logs, retention, exports)
 #    catalogs/networks.yaml (your CIDRs)
 #    catalogs/projects.yaml (delete the pilot, add your apps)
 
@@ -63,18 +65,20 @@ are listed in [docs/prerequisites.md](docs/prerequisites.md).
 First run takes ~10 minutes; afterwards plans and applies are incremental.
 Note: CI intentionally fails on the pristine fork with
 `example.com placeholder left in` until you set your domain in
-`catalogs/groups.yaml` — that gate is [the catalog validator](scripts/validate_catalogs.py)
-doing its job.
+`catalogs/groups.yaml` **and** `catalogs/org-policies.yaml` — that gate is
+[the catalog validator](scripts/validate_catalogs.py) doing its job. It also
+checks that the domains you allow for domain-restricted sharing actually
+cover the groups you grant roles to, so the two cannot drift apart.
 
 ## What each stage delivers
 
 | Stage | Creates |
 | --- | --- |
 | `bootstrap/` (once, local) | state bucket, pipeline service account (no keys), WIF pool + GitHub OIDC provider, curated org roles |
-| `stages/01-org` | folder taxonomy, group IAM bindings, org policy library with per-folder exceptions, central logging project + org audit sink + retention, essential contacts, org budget + email alerts |
-| `stages/02-networking` | shared VPC host project, subnets + secondary ranges, Cloud NAT per region, private DNS zone, hierarchical firewall policy (IAP-only SSH/RDP, deny public, allow internal) |
-| `stages/03-security` | CMEK-ready KMS keyring + key, break-glass alerting (org IAM / policy changes / SA key creation → email within a minute), example custom org policy constraint, optional dry-run VPC-SC perimeter |
-| `stages/10-factory` | every project in `catalogs/projects.yaml`: folder placement, APIs, shared VPC attach, subnet IAM, service accounts + roles, budget, labels |
+| `stages/01-org` | folder taxonomy, group IAM bindings, 21-constraint org policy library with per-folder scoping and exceptions, central logging project, Data Access audit configuration, four log buckets + sinks (admin, data access, network, DNS), BigQuery and Pub/Sub audit exports, org-defined resource tags, essential contacts, org budget |
+| `stages/02-networking` | shared VPC host project, subnets + secondary ranges, Cloud NAT per region, private DNS zone with query logging, hierarchical firewall policy (IAP-only SSH/RDP, deny public, allow internal) |
+| `stages/03-security` | CMEK keyring + key, Security Command Center findings feed (Pub/Sub) and continuous BigQuery export, break-glass and sensitive-change alerting, example custom org policy constraint, optional VPC-SC perimeter with access level and ingress/egress rules |
+| `stages/10-factory` | every project in `catalogs/projects.yaml`: folder placement, APIs, shared VPC attach, subnet IAM, service accounts + roles, environment and data-classification tags, budget, labels |
 
 ## The catalogs
 
@@ -99,23 +103,34 @@ Day-to-day changes are YAML diffs, reviewed like code:
 | Catalog | Drives |
 | --- | --- |
 | [catalogs/folders.yaml](catalogs/folders.yaml) | folder taxonomy |
-| [catalogs/groups.yaml](catalogs/groups.yaml) | groups + IAM bindings |
-| [catalogs/org-policies.yaml](catalogs/org-policies.yaml) | org policies + folder exceptions |
+| [catalogs/groups.yaml](catalogs/groups.yaml) | groups, IAM bindings, break-glass accounts |
+| [catalogs/org-policies.yaml](catalogs/org-policies.yaml) | org policies, folder scoping, folder exceptions |
+| [catalogs/audit-logs.yaml](catalogs/audit-logs.yaml) | Data Access logs, log buckets, retention, exports |
+| [catalogs/tags.yaml](catalogs/tags.yaml) | resource tag keys and values |
 | [catalogs/networks.yaml](catalogs/networks.yaml) | VPC, subnets, NAT, DNS |
 | [catalogs/projects.yaml](catalogs/projects.yaml) | the project factory |
 
 ## Security model
 
 - **No service account keys exist** — and the shipped policy library disables
-  their creation org-wide. The pipeline uses GitHub OIDC tokens (1 h lifetime,
-  repository-scoped by attribute condition).
+  their creation *and* their upload org-wide. The pipeline uses GitHub OIDC
+  tokens (1 h lifetime, repository-scoped by attribute condition).
+- **Sharing stops at the organization boundary.** Domain-restricted sharing
+  (`iam.allowedPolicyMemberDomains`) rejects any attempt to grant a role to
+  an identity outside your domain — including `allUsers`.
 - **IAM binds to groups, never users.** Humans are added to groups, not to
   resources.
+- **Data Access logs are on** for the services that hold the data, and the
+  audit trail goes three ways: log buckets with per-class retention, a
+  BigQuery dataset, and a Pub/Sub feed for a SIEM.
+- **Findings, not just logs.** Security Command Center findings stream to
+  Pub/Sub and export continuously to BigQuery.
+- **Break-glass exists and is alarmed.** Two emergency accounts, an empty
+  `break-glass` group holding the repair roles, and an alert on any use —
+  see [docs/break-glass.md](docs/break-glass.md).
 - **Every apply is gated** — PR plans first; the apply runs through the
   `landing-zone` GitHub environment (add required reviewers for a
   two-human rule).
-- **Break-glass is alerted, not blocked**: org IAM changes, org policy
-  changes, and SA key creation email the security group within a minute.
 - **Nightly drift detection** opens an issue when reality and Terraform
   disagree.
 
@@ -127,13 +142,13 @@ Details: [docs/architecture.md](docs/architecture.md) ·
 ```
 bootstrap/          run once, from an org admin's laptop
 stages/
-  01-org/           folders, IAM, policies, logging, budget
+  01-org/           folders, IAM, policies, logging, audit exports, tags
   02-networking/    shared VPC, NAT, DNS, hierarchical firewall
-  03-security/      KMS, break-glass alerts, custom constraints, VPC-SC
+  03-security/      KMS, SCC findings export, break-glass alerts, VPC-SC
   10-factory/       projects from the catalog
-catalogs/           the five YAML files a platform team edits
+catalogs/           the seven YAML files a platform team edits
 scripts/            catalog validation (runs in CI)
-docs/               architecture, prerequisites, pipeline, day-2, ADRs
+docs/               architecture, prerequisites, pipeline, day-2, break-glass, ADRs
 .github/workflows/  ci (static) · deploy (plan + apply) · drift (nightly)
 ```
 
@@ -143,6 +158,8 @@ docs/               architecture, prerequisites, pipeline, day-2, ADRs
 - CIS benchmark mapping for the policy library
 - Optional Interconnect/VPN stage (the firewall policy already reserves
   internal ranges for it)
+- Firewall rules keyed on secure tags (`target_secure_tags` needs provider
+  v6; the tag keys are already defined for it)
 
 ## Contributing
 
