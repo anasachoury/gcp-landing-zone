@@ -16,6 +16,9 @@
 #                        iam: [{ group: lz-admins, role: roles/viewer }]
 #   budget.amount      → monthly budget (USD); remove to skip the budget
 #   labels             → free-form labels (cost allocation, ownership)
+#   data_classification → optional tag from catalogs/tags.yaml, bound to the
+#                        project so policy and IAM conditions can match on it.
+#                        The environment tag is bound automatically.
 
 projects:
   # --- pilot workload (EDIT or delete) ---
@@ -42,6 +45,7 @@ projects:
     labels:
       team: platform
       app: pilot-api
+    data_classification: internal
 
   - app: pilot-api
     environment: production
@@ -66,3 +70,4 @@ projects:
     labels:
       team: platform
       app: pilot-api
+    data_classification: confidential

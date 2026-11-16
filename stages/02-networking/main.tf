@@ -18,6 +18,10 @@ locals {
   subnet_regions = distinct([for s in local.catalog.subnets : s.region])
   subnets_map    = { for s in local.catalog.subnets : "${s.region}/${s.name}" => s }
   nat_regions    = try(local.catalog.nat.enabled, true) ? local.subnet_regions : []
+
+  # Platform projects are tagged like workload projects so a policy condition
+  # never has to special-case them.
+  environment_tag = data.terraform_remote_state.org.outputs.tag_value_ids["environment/common"]
 }
 
 # --- Shared VPC host project -------------------------------------------------
@@ -39,6 +43,13 @@ resource "google_project_service" "host_services" {
   project            = google_project.host.project_id
   service            = each.value
   disable_on_destroy = false
+}
+
+# Tag the host project like any other: org policy conditions and IAM
+# conditions can then match on environment instead of on project ids.
+resource "google_tags_tag_binding" "host" {
+  parent    = "//cloudresourcemanager.googleapis.com/projects/${google_project.host.number}"
+  tag_value = local.environment_tag
 }
 
 resource "google_compute_shared_vpc_host_project" "host" {
@@ -135,6 +146,12 @@ resource "google_dns_managed_zone" "private" {
     networks {
       network_url = google_compute_network.vpc.id
     }
+  }
+
+  # Query logging is off by default and is what the "dns" audit bucket in
+  # catalogs/audit-logs.yaml collects. Without this the sink matches nothing.
+  cloud_logging_config {
+    enable_logging = true
   }
 
   depends_on = [google_project_service.host_services]

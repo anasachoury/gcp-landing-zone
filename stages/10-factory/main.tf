@@ -23,6 +23,9 @@ locals {
   groups       = yamldecode(file("${path.module}/../../catalogs/groups.yaml")).groups
   group_emails = { for g in local.groups : g.id => g.email }
 
+  # '<key>/<value>' → tag value id, from stage 01-org.
+  tag_values = data.terraform_remote_state.org.outputs.tag_value_ids
+
   env_codes = {
     development      = "dev"
     "non-production" = "nonprod"
@@ -115,6 +118,25 @@ resource "google_project_service" "services" {
   project            = google_project.projects[each.value.project].project_id
   service            = each.value.service
   disable_on_destroy = false
+}
+
+# --- resource tags -------------------------------------------------------------
+# Labels above are free-form; these are the governed ones. A tag is what an org
+# policy condition or an IAM condition can match on, so every project gets an
+# environment tag — and a data classification tag when the catalog sets one.
+
+resource "google_tags_tag_binding" "environment" {
+  for_each = local.projects
+
+  parent    = "//cloudresourcemanager.googleapis.com/projects/${google_project.projects[each.key].number}"
+  tag_value = local.tag_values["environment/${each.value.environment}"]
+}
+
+resource "google_tags_tag_binding" "data_classification" {
+  for_each = { for key, p in local.projects : key => p if try(p.data_classification, null) != null }
+
+  parent    = "//cloudresourcemanager.googleapis.com/projects/${google_project.projects[each.key].number}"
+  tag_value = local.tag_values["data-classification/${each.value.data_classification}"]
 }
 
 # --- shared VPC --------------------------------------------------------------
