@@ -16,6 +16,24 @@ groups:
   - id: security-admins
     email: security-admins@example.com
     display_name: Security Administrators
+  # Break-glass. Kept deliberately empty in steady state: the roles below are
+  # bound to the group, so an incident responder adds one of the accounts from
+  # the break_glass block to it, does the repair, and leaves. Every use is
+  # alerted on by stage 03-security. Runbook: docs/break-glass.md.
+  - id: break-glass
+    email: break-glass@example.com
+    display_name: Break Glass (emergency access)
+
+# Emergency accounts. These are ordinary Cloud Identity users that hold NO
+# standing GCP role — their only power is being addable to the break-glass
+# group. Keep them out of every other group, and keep the credentials offline.
+#
+# Stage 03-security watches for any activity by these principals and pages the
+# security-admins group. CI requires at least two and rejects placeholders.
+break_glass:
+  accounts:
+    - emergency-1@example.com
+    - emergency-2@example.com
 
 # Grants applied by stage 01-org.
 # parent: "organization" or "folder:<folder name from folders.yaml>"
@@ -35,3 +53,11 @@ bindings:
     parent: organization
     roles:
       - roles/iam.securityReviewer
+  # Standing roles for the empty break-glass group: enough to see what is
+  # broken, change org policy, and repair IAM. Nothing that can read data.
+  - group: break-glass
+    parent: organization
+    roles:
+      - roles/resourcemanager.organizationAdmin
+      - roles/orgpolicy.policyAdmin
+      - roles/logging.viewer
