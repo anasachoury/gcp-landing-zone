@@ -1,0 +1,32 @@
+# Resource tags — the structured, org-governed counterpart to labels.
+#
+# Labels are free-form strings any project editor can rewrite. Tags are
+# defined once at the organization, carry IAM and audit, and are what an org
+# policy condition or an IAM condition can key on. Use tags for anything a
+# policy or a firewall makes a decision with; labels stay for cost reporting
+# and free-text metadata.
+#
+# Stage 01-org creates the keys and values; the project factory binds the
+# `environment` value to every project it creates, so
+#   resource.matchTag("ORG_ID/environment", "production")
+# is available in org policy conditions and IAM conditions from day one.
+
+keys:
+  - short_name: environment
+    description: Deployment environment, mirrors the folder taxonomy
+    # Every value used by catalogs/projects.yaml must exist here — CI
+    # cross-checks both directions.
+    values:
+      - common
+      - production
+      - non-production
+      - development
+      - sandbox
+
+  - short_name: data-classification
+    description: Sensitivity of the data a project holds
+    values:
+      - public
+      - internal
+      - confidential
+      - restricted
