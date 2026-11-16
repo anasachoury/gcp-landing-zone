@@ -40,12 +40,21 @@ The script is idempotent: it reuses anything that already exists, and
 | `roles/essentialcontacts.admin` | org-level essential contacts |
 | `roles/serviceusage.serviceUsageAdmin` | enable APIs on new projects |
 | `roles/accesscontextmanager.policyAdmin` | optional VPC-SC perimeter (stage 03) |
+| `roles/iam.securityAdmin` | Data Access audit configs, which live on the organization IAM policy |
+| `roles/securitycenter.admin` | SCC notification config and continuous BigQuery export |
+| `roles/resourcemanager.tagAdmin` | create org tag keys/values and bind them to projects |
 | `roles/billing.user` | link projects to the billing account |
 | `roles/billing.admin` | create budgets (broad on purpose — reduce later) |
 
 Stages grant the pipeline additional *project-scoped* roles on the central
-logging project as needed (logging admin, monitoring editor, KMS admin) —
-made possible by org-level `projectIamAdmin`.
+logging project as needed (logging admin, monitoring editor, KMS admin,
+BigQuery admin, Pub/Sub admin) — made possible by org-level
+`projectIamAdmin`.
+
+`roles/iam.securityAdmin` is the one that surprises people: Data Access log
+configuration is not a Logging API call, it is `setIamPolicy` with an
+`auditConfigs` block on the organization. `logging.configWriter` does not
+cover it.
 
 ## Why no secrets in GitHub
 

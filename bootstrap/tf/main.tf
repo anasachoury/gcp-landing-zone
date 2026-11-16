@@ -17,6 +17,9 @@ locals {
   #   essentialcontacts.admin            01-org: org-level essential contacts
   #   serviceusage.serviceUsageAdmin     02/10: enable APIs on created projects
   #   accesscontextmanager.policyAdmin   03-security: optional VPC-SC perimeter
+  #   iam.securityAdmin                  01-org: auditConfigs live on the org IAM policy
+  #   securitycenter.admin               03-security: SCC notification + BigQuery export
+  #   resourcemanager.tagAdmin           01/10: create org tag keys/values, bind tags
   pipeline_org_roles = [
     "roles/resourcemanager.projectCreator",
     "roles/resourcemanager.folderAdmin",
@@ -28,6 +31,9 @@ locals {
     "roles/essentialcontacts.admin",
     "roles/serviceusage.serviceUsageAdmin",
     "roles/accesscontextmanager.policyAdmin",
+    "roles/iam.securityAdmin",
+    "roles/securitycenter.admin",
+    "roles/resourcemanager.tagAdmin",
   ]
 }
 
