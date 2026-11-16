@@ -5,40 +5,164 @@
 #   list    → enforcement: "deny" (deny all) | "allow" (allow all)
 #             or explicit value lists via allowed_values / denied_values
 #
+# scope:
+#   omitted          → the whole organization (the default)
+#   folder: <name>   → that folder only, from folders.yaml. Use this for a
+#                      constraint that is right for one part of the hierarchy
+#                      but would break another (see disableServiceAccountCreation).
+#
 # exceptions: folder names (from folders.yaml) where the constraint is
 # LIFTED. Stage 01-org renders a folder-level override policy for each.
+#
+# Values may contain ${org_id} and ${prefix}. Stage 01-org substitutes them,
+# so "allow only inside my own organization" needs no hardcoded id.
+#
+# A few constraints accept only allowed_values (no deny list) or only one
+# value — the catalog validator enforces that, so a bad entry fails CI
+# instead of the apply.
 
 policies:
-  # --- identity hygiene ---
+  # --- identity: who may be granted anything at all ------------------------
+  # Domain-restricted sharing. This is the control that stops a resource
+  # from being shared with an identity outside your organization: with it
+  # enforced, user:/group:/domain: members outside the listed domains (and
+  # allUsers / allAuthenticatedUsers) are rejected at SetIamPolicy time.
+  #
+  # Every group in groups.yaml must live in one of these domains — CI
+  # cross-checks it, so changing your domain in one file cannot silently
+  # leave a hole in the other.
+  #
+  # Note: service accounts and workload identity principal sets are not
+  # subject to this constraint. That is a Google limitation, not a config
+  # choice — cross-organization SA impersonation is a separate problem.
+  #
+  # Enforcing this on an organization whose IAM policy still contains
+  # external principals makes every later SetIamPolicy fail with
+  # FAILED_PRECONDITION ("do not belong to a permitted customer") — including
+  # the grants in this same stage. Clean the policy first; see
+  # docs/day-2.md, "Turn on domain-restricted sharing".
+  - constraint: constraints/iam.allowedPolicyMemberDomains
+    type: list
+    allowed_values:
+      - example.com # EDIT: your Cloud Identity / Workspace domain
+    # If you also run Cloud Identity identities outside that domain, add the
+    # customer id (C01234567) here as well.
+
   - constraint: constraints/iam.disableServiceAccountKeyCreation
     type: boolean
     enforce: true
+
+  # Uploading an externally minted key is the way around the constraint
+  # above. Closed here.
+  - constraint: constraints/iam.disableServiceAccountKeyUpload
+    type: boolean
+    enforce: true
+
   - constraint: constraints/iam.automaticIamGrantsForDefaultServiceAccounts
     type: boolean
     enforce: true
 
-  # --- no public exposure ---
-  - constraint: constraints/storage.publicAccessPrevention
+  # Belt and braces: key creation is disabled above, but if a folder lifts
+  # that, any key that does appear must expire within 30 days. Allowed values
+  # are a fixed set of durations and only one may be set.
+  - constraint: constraints/iam.serviceAccountKeyExpiryHours
+    type: list
+    allowed_values: ["720h"]
+
+  # Sandbox only. Experiments there are where ad-hoc identities with broad
+  # roles appear; the factory (and every other folder) still creates service
+  # accounts deliberately. To make this organization-wide instead, delete the
+  # `folder:` line and add `exceptions: [sandbox]`.
+  - constraint: constraints/iam.disableServiceAccountCreation
     type: boolean
     enforce: true
-  - constraint: constraints/sql.restrictPublicIp
-    type: list
-    enforcement: deny
+    folder: sandbox
+
+  # --- compute hardening ---------------------------------------------------
+  - constraint: constraints/compute.requireOsLogin
+    type: boolean
+    enforce: true
+
+  - constraint: constraints/compute.disableSerialPortAccess
+    type: boolean
+    enforce: true
+
+  - constraint: constraints/compute.disableNestedVirtualization
+    type: boolean
+    enforce: true
+
   - constraint: constraints/compute.vmExternalIpAccess
     type: list
     enforcement: deny
     exceptions: [sandbox]
 
-  # --- sane defaults ---
   - constraint: constraints/compute.skipDefaultNetworkCreation
     type: boolean
     enforce: true
+
   - constraint: constraints/compute.requireShieldedVm
     type: boolean
     enforce: true
     exceptions: [sandbox]
 
-  # --- data residency ---
+  # --- network isolation ---------------------------------------------------
+  # A VPC that peers with a network outside the organization is a hole in the
+  # perimeter that no firewall rule can close. Peering stays inside the org.
+  - constraint: constraints/compute.restrictVpcPeering
+    type: list
+    allowed_values:
+      - "under:organizations/${org_id}"
+
+  # Shared VPC subnets may only be shared out of the host project.
+  - constraint: constraints/compute.restrictSharedVpcSubnetworks
+    type: list
+    allowed_values:
+      - "under:projects/${prefix}-net-host"
+
+  # External protocol forwarding publishes a private address to the internet.
+  - constraint: constraints/compute.restrictProtocolForwardingCreationForTypes
+    type: list
+    allowed_values:
+      - INTERNAL
+
+  # --- data protection -----------------------------------------------------
+  - constraint: constraints/storage.publicAccessPrevention
+    type: boolean
+    enforce: true
+
+  - constraint: constraints/storage.uniformBucketLevelAccess
+    type: boolean
+    enforce: true
+
+  - constraint: constraints/sql.restrictPublicIp
+    type: list
+    enforcement: deny
+
+  # Authorized networks are the other way into a Cloud SQL instance from the
+  # internet; with public IP already denied this closes the loop.
+  - constraint: constraints/sql.restrictAuthorizedNetworks
+    type: boolean
+    enforce: true
+
+  # CMEK enforcement. For this constraint the services in denied_values are
+  # the ones that MUST be encrypted with a customer-managed key.
+  #
+  # The list below deliberately holds services the landing zone does not
+  # itself create resources in, so a fresh apply cannot fail on its own
+  # policy. Add storage.googleapis.com / bigquery.googleapis.com once the
+  # landing zone's own buckets and datasets carry CMEK (see
+  # docs/day-2.md — "Turn on CMEK for landing zone storage").
+  - constraint: constraints/gcp.restrictNonCmekServices
+    type: list
+    denied_values:
+      - sqladmin.googleapis.com
+      - secretmanager.googleapis.com
+      - container.googleapis.com
+      - artifactregistry.googleapis.com
+    # Sandbox is where people try things before they have a key policy.
+    exceptions: [sandbox]
+
+  # --- data residency ------------------------------------------------------
   # EDIT: the regions you allow resources in. "in:eu-locations" is a
   # Google-maintained region group; you can also list explicit regions
   # like "europe-west1".
