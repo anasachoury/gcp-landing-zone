@@ -14,15 +14,17 @@ Before running bootstrap, you need:
    on the organization — bootstrap grants org-level roles and creates the
    WIF pool.
 4. **The four groups from `catalogs/groups.yaml`**, created in your
-   identity domain (`lz-admins`, `network-admins`, `security-admins`,
-   `break-glass` by default). Bootstrap checks and tells you if they are
-   missing. Either create them in the Admin console (Directory → Groups) or:
+   identity domain `tuniclic.tech` (`lz-admins`, `network-admins`,
+   `security-admins`, `break-glass`). Bootstrap checks and tells you if they
+   are missing. Either create them in the Admin console (Directory → Groups) or:
 
    ```bash
-   gcloud identity groups create lz-admins@example.com \
-     --organization=CUSTOMER_ID \
-     --display-name="Landing Zone Admins" \
-     --group-type=security
+   for g in lz-admins network-admins security-admins break-glass; do
+     gcloud identity groups create "$g@tuniclic.tech" \
+       --organization=CUSTOMER_ID \
+       --display-name="$g" \
+       --group-type=security
+   done
    ```
 
    `CUSTOMER_ID` is printed by

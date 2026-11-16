@@ -52,8 +52,8 @@ are listed in [docs/prerequisites.md](docs/prerequisites.md).
 #    for you — none of them are secrets)
 
 # 3. edit the catalogs to your reality:
-#    catalogs/groups.yaml  (your domain, your groups, your break-glass accounts)
-#    catalogs/org-policies.yaml  (your domain again, your allowed regions)
+#    catalogs/groups.yaml  (your groups, your break-glass accounts)
+#    catalogs/org-policies.yaml  (your allowed regions)
 #    catalogs/audit-logs.yaml  (Data Access logs, retention, exports)
 #    catalogs/networks.yaml (your CIDRs)
 #    catalogs/projects.yaml (delete the pilot, add your apps)
@@ -63,12 +63,14 @@ are listed in [docs/prerequisites.md](docs/prerequisites.md).
 ```
 
 First run takes ~10 minutes; afterwards plans and applies are incremental.
-Note: CI intentionally fails on the pristine fork with
-`example.com placeholder left in` until you set your domain in
-`catalogs/groups.yaml` **and** `catalogs/org-policies.yaml` — that gate is
-[the catalog validator](scripts/validate_catalogs.py) doing its job. It also
-checks that the domains you allow for domain-restricted sharing actually
-cover the groups you grant roles to, so the two cannot drift apart.
+
+The identity domain is `tuniclic.tech`, set in both `catalogs/groups.yaml`
+(group addresses) and `catalogs/org-policies.yaml` (the domain allowed by
+domain-restricted sharing). CI cross-checks that the domains you allow
+actually cover the groups you grant roles to, so the two cannot drift apart.
+On a fresh fork that gate fails with `example.com placeholder left in` until
+both files are set — [the catalog validator](scripts/validate_catalogs.py)
+doing its job, not a broken pipeline.
 
 ## What each stage delivers
 

@@ -4,24 +4,24 @@
 # They must already exist in Cloud Identity / Google Workspace
 # (see docs/prerequisites.md — bootstrap.sh checks and tells you if not).
 #
-# EDIT: replace example.com with your identity domain.
+# Identity domain: tuniclic.tech.
 
 groups:
   - id: lz-admins
-    email: lz-admins@example.com
+    email: lz-admins@tuniclic.tech
     display_name: Landing Zone Admins
   - id: network-admins
-    email: network-admins@example.com
+    email: network-admins@tuniclic.tech
     display_name: Network Administrators
   - id: security-admins
-    email: security-admins@example.com
+    email: security-admins@tuniclic.tech
     display_name: Security Administrators
   # Break-glass. Kept deliberately empty in steady state: the roles below are
   # bound to the group, so an incident responder adds one of the accounts from
   # the break_glass block to it, does the repair, and leaves. Every use is
   # alerted on by stage 03-security. Runbook: docs/break-glass.md.
   - id: break-glass
-    email: break-glass@example.com
+    email: break-glass@tuniclic.tech
     display_name: Break Glass (emergency access)
 
 # Emergency accounts. These are ordinary Cloud Identity users that hold NO
@@ -32,8 +32,8 @@ groups:
 # security-admins group. CI requires at least two and rejects placeholders.
 break_glass:
   accounts:
-    - emergency-1@example.com
-    - emergency-2@example.com
+    - emergency-1@tuniclic.tech
+    - emergency-2@tuniclic.tech
 
 # Grants applied by stage 01-org.
 # parent: "organization" or "folder:<folder name from folders.yaml>"

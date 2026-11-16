@@ -42,7 +42,7 @@ Do this once, from an org admin's machine, before you need it.
 
 1. **Create the two accounts** in Cloud Identity (Directory → Users). Use a
    name that is obviously an emergency identity, e.g.
-   `emergency-1@your-domain.com`. Do not give them a mailbox that anyone reads
+   `emergency-1@tuniclic.tech`. Do not give them a mailbox that anyone reads
    daily.
 
 2. **Give them super admin, and nothing else.** In the Admin console, assign
@@ -58,7 +58,7 @@ Do this once, from an org admin's machine, before you need it.
    it):
 
    ```bash
-   gcloud identity groups create break-glass@your-domain.com \
+   gcloud identity groups create break-glass@tuniclic.tech \
      --organization=CUSTOMER_ID \
      --display-name="Break Glass (emergency access)" \
      --group-type=security
@@ -69,8 +69,8 @@ Do this once, from an org admin's machine, before you need it.
    ```yaml
    break_glass:
      accounts:
-       - emergency-1@your-domain.com
-       - emergency-2@your-domain.com
+       - emergency-1@tuniclic.tech
+       - emergency-2@tuniclic.tech
    ```
 
    CI rejects placeholders and fewer than two accounts.
@@ -96,8 +96,8 @@ Do this once, from an org admin's machine, before you need it.
 
    ```bash
    gcloud identity groups memberships add \
-     --group-email=break-glass@your-domain.com \
-     --member-email=emergency-1@your-domain.com
+     --group-email=break-glass@tuniclic.tech \
+     --member-email=emergency-1@tuniclic.tech
    ```
 
    Membership takes a few minutes to reach IAM. Check with
@@ -111,8 +111,8 @@ Do this once, from an org admin's machine, before you need it.
 
    ```bash
    gcloud identity groups memberships delete \
-     --group-email=break-glass@your-domain.com \
-     --member-email=emergency-1@your-domain.com
+     --group-email=break-glass@tuniclic.tech \
+     --member-email=emergency-1@tuniclic.tech
    ```
 
 5. **Codify the fix.** Whatever you changed by hand goes into a PR the same

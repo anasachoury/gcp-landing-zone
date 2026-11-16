@@ -112,7 +112,7 @@ a bucket — read this before the first apply:
 
    ```bash
    gcloud organizations get-iam-policy ORG_ID --format=json \
-     | jq -r '.bindings[] | "\(.role) \(.members[])"' | grep -v "@your-domain.com"
+     | jq -r '.bindings[] | "\(.role) \(.members[])"' | grep -v "@tuniclic.tech"
    ```
 
 2. **Remove or replace them first.** Either drop the binding, or move the

@@ -44,7 +44,7 @@ policies:
   - constraint: constraints/iam.allowedPolicyMemberDomains
     type: list
     allowed_values:
-      - example.com # EDIT: your Cloud Identity / Workspace domain
+      - tuniclic.tech # the Cloud Identity / Workspace domain
     # If you also run Cloud Identity identities outside that domain, add the
     # customer id (C01234567) here as well.
 
