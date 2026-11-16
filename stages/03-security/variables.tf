@@ -32,23 +32,46 @@ variable "state_bucket" {
 }
 
 variable "region" {
-  description = "Location for the KMS key ring."
+  description = "Location for the KMS key ring and the SCC findings dataset."
   type        = string
   default     = "europe-west1"
 }
 
+variable "enable_scc" {
+  description = "Create the Security Command Center findings feed (Pub/Sub), the BigQuery export and their IAM grants. Requires SCC to be enrolled on the organization."
+  type        = bool
+  default     = true
+}
+
 variable "enable_vpc_sc" {
-  description = "EXPERIMENTAL: create an access policy and a dry-run VPC-SC perimeter. Only one access policy can exist per organization — verify in the console first."
+  description = "EXPERIMENTAL: create an access policy and a VPC Service Controls perimeter around the production folder. Only one access policy can exist per organization — verify in the console first."
   type        = bool
   default     = false
 }
 
+variable "vpc_sc_mode" {
+  description = "\"dry_run\" logs what the perimeter would block; \"enforce\" blocks it. Run dry-run first and read the violations."
+  type        = string
+  default     = "dry_run"
+
+  validation {
+    condition     = contains(["dry_run", "enforce"], var.vpc_sc_mode)
+    error_message = "vpc_sc_mode must be \"dry_run\" or \"enforce\"."
+  }
+}
+
 variable "vpc_sc_services" {
-  description = "Services inside the dry-run VPC-SC perimeter."
+  description = "Services inside the VPC-SC perimeter (also the services reachable from the corporate network)."
   type        = list(string)
   default = [
     "storage.googleapis.com",
     "bigquery.googleapis.com",
     "logging.googleapis.com",
   ]
+}
+
+variable "vpc_sc_trusted_cidrs" {
+  description = "EDIT: corporate egress ranges allowed into the perimeter. The default is TEST-NET-2 and matches nothing real."
+  type        = list(string)
+  default     = ["198.51.100.0/24"]
 }
