@@ -32,14 +32,8 @@ variable "admin_group_id" {
   default     = "lz-admins"
 }
 
-variable "audit_retention_days" {
-  description = "Retention for the central audit log bucket."
-  type        = number
-  default     = 365
-}
-
 variable "log_location" {
-  description = "Location for the central log bucket: 'global' or a region like europe-west1."
+  description = "Location for the central log buckets: 'global' or a region like europe-west1."
   type        = string
   default     = "global"
 }

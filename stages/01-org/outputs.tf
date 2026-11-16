@@ -27,3 +27,28 @@ output "admin_group_email" {
   description = "Email of the admin group (essential contacts, budget alerts)."
   value       = local.admin_email
 }
+
+output "break_glass_accounts" {
+  description = "Emergency accounts watched by the break-glass alerting in stage 03-security."
+  value       = yamldecode(file("${path.module}/../../catalogs/groups.yaml")).break_glass.accounts
+}
+
+output "log_buckets" {
+  description = "Map of audit log bucket id to its resource name."
+  value       = { for id, b in google_logging_project_bucket_config.buckets : id => b.name }
+}
+
+output "audit_bigquery_dataset" {
+  description = "BigQuery dataset receiving the audit log export (empty when the export is disabled)."
+  value       = local.export_bq ? google_bigquery_dataset.audit_export[0].dataset_id : ""
+}
+
+output "audit_pubsub_topic" {
+  description = "Pub/Sub topic receiving the streaming audit feed (empty when the export is disabled)."
+  value       = local.export_pubsub ? google_pubsub_topic.audit_feed[0].name : ""
+}
+
+output "tag_value_ids" {
+  description = "Map of '<key>/<value>' to tag value id, for binding tags to projects."
+  value       = { for k, v in google_tags_tag_value.values : k => v.id }
+}
